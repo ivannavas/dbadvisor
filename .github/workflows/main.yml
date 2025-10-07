@@ -1,0 +1,115 @@
+name: Release on tag
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    env:
+      GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          server-id: central
+          server-username: CENTRAL_USERNAME
+          server-password: CENTRAL_PASSWORD
+          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+          gpg-passphrase: ${{ secrets.GPG_PASSPHRASE }}
+
+      - name: Install XML tools (xmllint)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxml2-utils
+
+      - name: Determine tag version and POM version
+        id: versions
+        shell: bash
+        run: |
+          TAG_NAME="${GITHUB_REF_NAME}"
+          TAG_VER="${TAG_NAME#v}"
+          echo "tag_version=$TAG_VER" >> "$GITHUB_OUTPUT"
+
+          POM_VER=$(xmllint --xpath "string(//project/properties/dbadvisor.version)" pom.xml)
+          if [ -z "$POM_VER" ]; then
+            echo "Could not read dbadvisor.version" >&2
+            exit 1
+          fi
+          echo "pom_version=$POM_VER" >> "$GITHUB_OUTPUT"
+
+          if [ "$POM_VER" != "$TAG_VER" ]; then
+            echo "Tag ($TAG_VER) does not match ($POM_VER)." >&2
+            exit 1
+          fi
+
+      - name: Build and Deploy to Maven Central
+        run: |
+          mvn -B -U -DskipTests deploy -f pom.xml
+
+      - name: Collect module versions and prepare release notes
+        id: notes
+        shell: bash
+        run: |
+          TAG_VER="${{ steps.versions.outputs.tag_version }}"
+
+          MODULES=$(xmllint --xpath 'string-join(//project/modules/module/text(), " ")' pom.xml)
+
+          if [ -z "$MODULES" ]; then
+            MODULES=$(find . -maxdepth 1 -type d -name "dbadvisor-*" -printf "%f " | xargs -n1 | sort | xargs)
+          fi
+
+          echo "Detected modules: $MODULES"
+
+          BODY_FILE="RELEASE_BODY.md"
+          {
+            echo "# dbadvisor $TAG_VER"
+            echo
+            echo "Release generated: \`pom.xml\`."
+            echo
+            echo "## Modules version"
+            echo
+            echo "| Module | Version |"
+            echo "|-------|-------------------|"
+          } > "$BODY_FILE"
+
+          for m in $MODULES; do
+            if [ -f "$m/pom.xml" ]; then
+              VER=$(mvn -q -f "$m/pom.xml" -DforceStdout help:evaluate -Dexpression=project.version | tr -d '\r')W
+              VER=$(echo "$VER" | tail -n1)
+              echo "| $m | $VER |" >> "$BODY_FILE"
+            fi
+          done
+
+          {
+            echo
+            echo "## Info"
+            echo "- Tag: \`${{ github.ref_name }}\`"
+            echo "- Commit: \`${{ github.sha }}\`"
+          } >> "$BODY_FILE"
+
+          echo "body_path=$BODY_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: dbadvisor ${{ steps.versions.outputs.tag_version }}
+          body_path: ${{ steps.notes.outputs.body_path }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
