@@ -62,22 +62,22 @@
             <dependency>
                 <groupId>io.github.ivannavas</groupId>
                 <artifactId>dbadvisor-core</artifactId>
-                <version>${revision}</version>
+                <version>0.2.2</version>
             </dependency>
             <dependency>
                 <groupId>io.github.ivannavas</groupId>
                 <artifactId>dbadvisor-hibernate</artifactId>
-                <version>${revision}</version>
+                <version>0.2.1</version>
             </dependency>
             <dependency>
                 <groupId>io.github.ivannavas</groupId>
                 <artifactId>dbadvisor-h2</artifactId>
-                <version>${revision}</version>
+                <version>0.2.1</version>
             </dependency>
             <dependency>
                 <groupId>io.github.ivannavas</groupId>
                 <artifactId>dbadvisor-postgresql</artifactId>
-                <version>${revision}</version>
+                <version>0.2.1</version>
             </dependency>
             <dependency>
                 <groupId>org.junit.jupiter</groupId>
