@@ -12,9 +12,6 @@ jobs:
   release:
     runs-on: ubuntu-latest
 
-    env:
-      GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,8 +25,8 @@ jobs:
           java-version: '21'
           cache: maven
           server-id: central
-          server-username: CENTRAL_USERNAME
-          server-password: CENTRAL_PASSWORD
+          server-username: ${{ secrets.CENTRAL_USERNAME }}
+          server-password: ${{ secrets.CENTRAL_PASSWORD }}
           gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
           gpg-passphrase: ${{ secrets.GPG_PASSPHRASE }}
 
@@ -42,30 +39,27 @@ jobs:
         id: versions
         shell: bash
         run: |
+          set -euo pipefail
           TAG_NAME="${GITHUB_REF_NAME}"
           TAG_VER="${TAG_NAME#v}"
           echo "tag_version=$TAG_VER" >> "$GITHUB_OUTPUT"
-
-          if [ ! -f maven.config ]; then
-            echo "maven.config not found" >&2
+          CONFIG_FILE=".mvn/maven.config"
+          if [ ! -f "$CONFIG_FILE" ]; then
+            echo "$CONFIG_FILE not found" >&2
             exit 1
           fi
-
-          REV_LINE=$(tr -d '\r' < maven.config | tr ' ' '\n' | grep -E '^-Drevision=' | head -n1 || true)
+          REV_LINE=$(tr -d '\r' < "$CONFIG_FILE" | tr ' ' '\n' | grep -E '^-Drevision=' | head -n1 || true)
           if [ -z "$REV_LINE" ]; then
-            echo "Could not find -Drevision in maven.config" >&2
+            echo "Could not find -Drevision in $CONFIG_FILE" >&2
             exit 1
           fi
-
           REV="${REV_LINE#-Drevision=}"
           REV="${REV%\"}"
           REV="${REV#\"}"
           REV="${REV%-SNAPSHOT}"
-
           echo "maven_revision=$REV" >> "$GITHUB_OUTPUT"
-
           if [ "$REV" != "$TAG_VER" ]; then
-            echo "Tag ($TAG_VER) does not match maven.config revision ($REV)." >&2
+            echo "Tag ($TAG_VER) does not match maven revision ($REV)." >&2
             exit 1
           fi
 
@@ -77,16 +71,12 @@ jobs:
         id: notes
         shell: bash
         run: |
+          set -euo pipefail
           TAG_VER="${{ steps.versions.outputs.tag_version }}"
-
-          MODULES=$(xmllint --xpath 'string-join(//project/modules/module/text(), " ")' pom.xml)
-
+          MODULES=$(xmllint --xpath 'string-join(//project/modules/module/text(), " ")' pom.xml || true)
           if [ -z "$MODULES" ]; then
-            MODULES=$(find . -maxdepth 1 -type d -name "dbadvisor-*" -printf "%f " | xargs -n1 | sort | xargs)
+            MODULES=$(find . -maxdepth 1 -type d -name "dbadvisor-*" -printf "%f " | xargs -n1 | sort | xargs || true)
           fi
-
-          echo "Detected modules: $MODULES"
-
           BODY_FILE="RELEASE_BODY.md"
           {
             echo "# dbadvisor $TAG_VER"
@@ -98,22 +88,18 @@ jobs:
             echo "| Module | Version |"
             echo "|-------|-------------------|"
           } > "$BODY_FILE"
-
           for m in $MODULES; do
             if [ -f "$m/pom.xml" ]; then
-              VER=$(mvn -q -f "$m/pom.xml" -DforceStdout help:evaluate -Dexpression=project.version | tr -d '\r')
-              VER=$(echo "$VER" | tail -n1)
+              VER=$(mvn -q -f "$m/pom.xml" -DforceStdout help:evaluate -Dexpression=project.version | tr -d '\r' | tail -n1)
               echo "| $m | $VER |" >> "$BODY_FILE"
             fi
           done
-
           {
             echo
             echo "## Info"
             echo "- Tag: \`${{ github.ref_name }}\`"
             echo "- Commit: \`${{ github.sha }}\`"
           } >> "$BODY_FILE"
-
           echo "body_path=$BODY_FILE" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
