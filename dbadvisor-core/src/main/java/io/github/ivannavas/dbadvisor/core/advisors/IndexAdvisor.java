@@ -30,7 +30,7 @@ public class IndexAdvisor implements Advisor<IndexAdvise> {
     }
 
     private List<IndexAdvise> analyzeNode(Node node) {
-        if (node.totalCost() < 10.0) {
+        if (node.totalCost() != null && node.totalCost() < 10.0) {
             return List.of();
         }
 
