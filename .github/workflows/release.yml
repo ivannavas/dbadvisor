@@ -65,7 +65,11 @@ jobs:
 
       - name: Build and Deploy to Maven Central
         run: |
-          mvn -B -U -DskipTests deploy -f pom.xml
+          mvn -B -U -DskipTests \
+             -Dgpg.passphrase="${{ secrets.GPG_PASSPHRASE }}" \
+             -Dgpg.executable=gpg \
+             -Dgpg.args="--batch --yes --pinentry-mode loopback" \
+             deploy -f pom.xml
 
       - name: Collect module versions and prepare release notes
         id: notes
