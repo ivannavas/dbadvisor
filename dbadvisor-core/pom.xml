@@ -8,7 +8,6 @@
         <groupId>io.github.ivannavas</groupId>
         <artifactId>dbadvisor-parent</artifactId>
         <version>${revision}</version>
-        <relativePath>..</relativePath>
     </parent>
 
     <artifactId>dbadvisor-core</artifactId>
