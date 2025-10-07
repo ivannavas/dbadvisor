@@ -28,11 +28,11 @@ jobs:
           server-username: CENTRAL_USERNAME
           server-password: CENTRAL_PASSWORD
           gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
-          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+          gpg-passphrase: ${{ secrets.GPG_PASSPHRASE }}
         env:
           CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
           CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
-          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+
 
 
       - name: Install XML tools (xmllint)
@@ -69,12 +69,14 @@ jobs:
           fi
 
       - name: Build and Deploy to Maven Central
+        env:
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           mvn -B -U -DskipTests \
-             -Dgpg.passphrase="${{ secrets.GPG_PASSPHRASE }}" \
              -Dgpg.executable=gpg \
              -Dgpg.args="--batch --yes --pinentry-mode loopback" \
              deploy -f pom.xml
+
 
       - name: Collect module versions and prepare release notes
         id: notes
