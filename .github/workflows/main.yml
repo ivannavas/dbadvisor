@@ -38,7 +38,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libxml2-utils
 
-      - name: Determine tag version and POM version
+      - name: Determine tag version and revision from .mvn/maven.config
         id: versions
         shell: bash
         run: |
@@ -46,15 +46,26 @@ jobs:
           TAG_VER="${TAG_NAME#v}"
           echo "tag_version=$TAG_VER" >> "$GITHUB_OUTPUT"
 
-          POM_VER=$(xmllint --xpath "string(//project/properties/dbadvisor.version)" pom.xml)
-          if [ -z "$POM_VER" ]; then
-            echo "Could not read dbadvisor.version" >&2
+          if [ ! -f .mvn/.mvn/maven.config ]; then
+            echo ".mvn/maven.config not found" >&2
             exit 1
           fi
-          echo "pom_version=$POM_VER" >> "$GITHUB_OUTPUT"
 
-          if [ "$POM_VER" != "$TAG_VER" ]; then
-            echo "Tag ($TAG_VER) does not match ($POM_VER)." >&2
+          REV_LINE=$(tr -d '\r' < .mvn/maven.config | tr ' ' '\n' | grep -E '^-Drevision=' | head -n1 || true)
+          if [ -z "$REV_LINE" ]; then
+            echo "Could not find -Drevision in .mvn/maven.config" >&2
+            exit 1
+          fi
+
+          REV="${REV_LINE#-Drevision=}"
+          REV="${REV%\"}"
+          REV="${REV#\"}"
+          REV="${REV%-SNAPSHOT}"
+
+          echo "maven_revision=$REV" >> "$GITHUB_OUTPUT"
+
+          if [ "$REV" != "$TAG_VER" ]; then
+            echo "Tag ($TAG_VER) does not match .mvn/maven.config revision ($REV)." >&2
             exit 1
           fi
 
@@ -80,7 +91,7 @@ jobs:
           {
             echo "# dbadvisor $TAG_VER"
             echo
-            echo "Release generated: \`pom.xml\`."
+            echo "Release generated using \`.mvn/maven.config\` revision."
             echo
             echo "## Modules version"
             echo
@@ -90,7 +101,7 @@ jobs:
 
           for m in $MODULES; do
             if [ -f "$m/pom.xml" ]; then
-              VER=$(mvn -q -f "$m/pom.xml" -DforceStdout help:evaluate -Dexpression=project.version | tr -d '\r')W
+              VER=$(mvn -q -f "$m/pom.xml" -DforceStdout help:evaluate -Dexpression=project.version | tr -d '\r')
               VER=$(echo "$VER" | tail -n1)
               echo "| $m | $VER |" >> "$BODY_FILE"
             fi
