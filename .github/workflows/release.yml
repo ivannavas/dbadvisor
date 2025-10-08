@@ -17,6 +17,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          fetch-tags: true
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -35,6 +36,7 @@ jobs:
 
       - name: Install XML tools
         run: |
+          set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y libxml2-utils
 
@@ -46,21 +48,25 @@ jobs:
           TAG_NAME="${GITHUB_REF_NAME}"
           TAG_VER="${TAG_NAME#v}"
           echo "tag_version=$TAG_VER" >> "$GITHUB_OUTPUT"
+
           CONFIG_FILE=".mvn/maven.config"
           if [ ! -f "$CONFIG_FILE" ]; then
             echo "$CONFIG_FILE not found" >&2
             exit 1
           fi
+
           REV_LINE=$(tr -d '\r' < "$CONFIG_FILE" | tr ' ' '\n' | grep -E '^-Drevision=' | head -n1 || true)
           if [ -z "$REV_LINE" ]; then
             echo "Could not find -Drevision in $CONFIG_FILE" >&2
             exit 1
           fi
+
           REV="${REV_LINE#-Drevision=}"
           REV="${REV%\"}"
           REV="${REV#\"}"
           REV="${REV%-SNAPSHOT}"
           echo "maven_revision=$REV" >> "$GITHUB_OUTPUT"
+
           if [ "$REV" != "$TAG_VER" ]; then
             echo "Tag ($TAG_VER) does not match maven revision ($REV)." >&2
             exit 1
@@ -73,73 +79,84 @@ jobs:
           set -euo pipefail
           CUR="${GITHUB_REF_NAME}"
           PREV=$(git tag --sort=-creatordate | grep '^v' | grep -v "^${CUR}$" | head -n1 || true)
+
           MODULES=""
           if [ -z "${PREV}" ]; then
+            # Primer release con tags: publica todo lo básico
             MODULES="dbadvisor-core dbadvisor-hibernate dbadvisor-h2 dbadvisor-postgresql"
           else
-            DIFF=$(git diff -U0 "${PREV}"..."${CUR}" -- pom.xml | grep '^[+-]\s*<dbadvisor\..*\.version>' || true)
+            DIFF=$(git diff -U0 "${PREV}"..."${CUR}" -- pom.xml | grep -E '^[+-]\s*<dbadvisor\..*\.version>' || true)
             if [ -n "$DIFF" ]; then
-              while read -r line; do
+              while IFS= read -r line; do
                 n=$(printf "%s\n" "$line" | sed -E 's/.*<dbadvisor\.([a-z0-9-]+)\.version>.*/\1/')
-                [ -n "$n" ] && MODULES="$MODULES dbadvisor-$n"
-              done <<EOF
-  $DIFF
-  EOF
-  fi
-  MODULES=$(echo "$MODULES" | xargs -n1 | sort -u | xargs || true)
-  fi
-  echo "modules=$MODULES" >> "$GITHUB_OUTPUT"
+                if [ -n "$n" ]; then
+                  MODULES="$MODULES dbadvisor-$n"
+                fi
+              done <<< "$DIFF"
+            fi
+          fi
 
-- name: Deploy BOM
-  env:
-    MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-  run: |
-    mvn -B -U -DskipTests -Dgpg.executable=gpg -Dgpg.args="--batch --yes --pinentry-mode loopback" deploy -f dbadvisor-bom/pom.xml
+          # normaliza y quita duplicados
+          MODULES=$(printf "%s\n" $MODULES | xargs -n1 2>/dev/null | sort -u | xargs 2>/dev/null || true)
 
-- name: Deploy changed modules
-  if: ${{ steps.changed.outputs.modules != '' }}
-  env:
-    MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-  run: |
-    set -euo pipefail
-    for m in ${{ steps.changed.outputs.modules }}; do
-      mvn -B -U -DskipTests -Dgpg.executable=gpg -Dgpg.args="--batch --yes --pinentry-mode loopback" deploy -f "$m/pom.xml"
-    done
+          echo "modules=$MODULES" >> "$GITHUB_OUTPUT"
 
-- name: Collect module versions and prepare release notes
-  id: notes
-  shell: bash
-  run: |
-    set -euo pipefail
-    BODY_FILE="RELEASE_BODY.md"
-    CORE=$(xmllint --xpath 'string(//project/properties/dbadvisor.core.version)' pom.xml)
-    HIB=$(xmllint --xpath 'string(//project/properties/dbadvisor.hibernate.version)' pom.xml)
-    H2=$(xmllint --xpath 'string(//project/properties/dbadvisor.h2.version)' pom.xml)
-    PG=$(xmllint --xpath 'string(//project/properties/dbadvisor.postgresql.version)' pom.xml)
-    {
-      echo "# dbadvisor ${{ steps.versions.outputs.tag_version }}"
-      echo
-      echo "## Modules version"
-      echo
-      echo "| Module | Version |"
-      echo "|-------|---------|"
-      echo "| dbadvisor-bom | ${{ steps.versions.outputs.tag_version }} |"
-      echo "| dbadvisor-core | ${CORE} |"
-      echo "| dbadvisor-hibernate | ${HIB} |"
-      echo "| dbadvisor-h2 | ${H2} |"
-      echo "| dbadvisor-postgresql | ${PG} |"
-      echo
-      echo "## Info"
-      echo "- Tag: \`${{ github.ref_name }}\`"
-      echo "- Commit: \`${{ github.sha }}\`"
-    } > "$BODY_FILE"
-    echo "body_path=$BODY_FILE" >> "$GITHUB_OUTPUT"
+      - name: Deploy BOM
+        env:
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          mvn -B -U -DskipTests -Dgpg.executable=gpg -Dgpg.args="--batch --yes --pinentry-mode loopback" \
+            deploy -f dbadvisor-bom/pom.xml
 
-- name: Create GitHub Release
-  uses: softprops/action-gh-release@v2
-  with:
-    tag_name: ${{ github.ref_name }}
-    name: dbadvisor ${{ steps.versions.outputs.tag_version }}
-    body_path: ${{ steps.notes.outputs.body_path }}
-  env:
-    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Deploy changed modules
+        if: ${{ steps.changed.outputs.modules != '' }}
+        env:
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          for m in ${{ steps.changed.outputs.modules }}; do
+            echo "Deploying $m"
+            mvn -B -U -DskipTests -Dgpg.executable=gpg -Dgpg.args="--batch --yes --pinentry-mode loopback" \
+              deploy -f "$m/pom.xml"
+          done
+
+      - name: Collect module versions and prepare release notes
+        id: notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          BODY_FILE="RELEASE_BODY.md"
+          CORE=$(xmllint --xpath 'string(//project/properties/dbadvisor.core.version)' pom.xml)
+          HIB=$(xmllint --xpath 'string(//project/properties/dbadvisor.hibernate.version)' pom.xml)
+          H2=$(xmllint --xpath 'string(//project/properties/dbadvisor.h2.version)' pom.xml)
+          PG=$(xmllint --xpath 'string(//project/properties/dbadvisor.postgresql.version)' pom.xml)
+
+          {
+            echo "# dbadvisor ${{ steps.versions.outputs.tag_version }}"
+            echo
+            echo "## Modules version"
+            echo
+            echo "| Module | Version |"
+            echo "|--------|---------|"
+            echo "| dbadvisor-bom | ${{ steps.versions.outputs.tag_version }} |"
+            echo "| dbadvisor-core | ${CORE} |"
+            echo "| dbadvisor-hibernate | ${HIB} |"
+            echo "| dbadvisor-h2 | ${H2} |"
+            echo "| dbadvisor-postgresql | ${PG} |"
+            echo
+            echo "## Info"
+            echo "- Tag: \`${{ github.ref_name }}\`"
+            echo "- Commit: \`${{ github.sha }}\`"
+          } > "$BODY_FILE"
+
+          echo "body_path=$BODY_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: dbadvisor ${{ steps.versions.outputs.tag_version }}
+          body_path: ${{ steps.notes.outputs.body_path }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
