@@ -11,6 +11,7 @@
     </parent>
 
     <artifactId>dbadvisor-hibernate</artifactId>
+    <version>${dbadvisor.hibernate.version}</version>
     <name>dbadvisor-hibernate</name>
     <description>Hibernate integration for dbadvisor</description>
 
@@ -18,6 +19,7 @@
         <dependency>
             <groupId>io.github.ivannavas</groupId>
             <artifactId>dbadvisor-core</artifactId>
+            <version>${dbadvisor.core.version}</version>
         </dependency>
         <dependency>
             <groupId>org.hibernate.orm</groupId>
@@ -30,10 +32,12 @@
         <dependency>
             <groupId>io.github.ivannavas</groupId>
             <artifactId>dbadvisor-postgresql</artifactId>
+            <version>${dbadvisor.postgresql.version}</version>
         </dependency>
         <dependency>
             <groupId>io.github.ivannavas</groupId>
             <artifactId>dbadvisor-h2</artifactId>
+            <version>${dbadvisor.h2.version}</version>
         </dependency>
         <dependency>
             <groupId>org.slf4j</groupId>

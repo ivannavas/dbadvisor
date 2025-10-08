@@ -11,6 +11,7 @@
     </parent>
 
     <artifactId>dbadvisor-core</artifactId>
+    <version>${dbadvisor.core.version}</version>
 
     <name>dbadvisor-core</name>
     <description>dbadvisor core module</description>

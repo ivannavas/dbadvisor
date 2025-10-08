@@ -33,9 +33,7 @@ jobs:
           CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
           CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
 
-
-
-      - name: Install XML tools (xmllint)
+      - name: Install XML tools
         run: |
           sudo apt-get update
           sudo apt-get install -y libxml2-utils
@@ -68,56 +66,80 @@ jobs:
             exit 1
           fi
 
-      - name: Build and Deploy to Maven Central
-        env:
-          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-        run: |
-          mvn -B -U -DskipTests \
-             -Dgpg.executable=gpg \
-             -Dgpg.args="--batch --yes --pinentry-mode loopback" \
-             deploy -f pom.xml
-
-
-      - name: Collect module versions and prepare release notes
-        id: notes
+      - name: Detect changed module versions
+        id: changed
         shell: bash
         run: |
           set -euo pipefail
-          TAG_VER="${{ steps.versions.outputs.tag_version }}"
-          MODULES=$(xmllint --xpath 'string-join(//project/modules/module/text(), " ")' pom.xml || true)
-          if [ -z "$MODULES" ]; then
-            MODULES=$(find . -maxdepth 1 -type d -name "dbadvisor-*" -printf "%f " | xargs -n1 | sort | xargs || true)
-          fi
-          BODY_FILE="RELEASE_BODY.md"
-          {
-            echo "# dbadvisor $TAG_VER"
-            echo
-            echo "Release generated using \`maven.config\` revision."
-            echo
-            echo "## Modules version"
-            echo
-            echo "| Module | Version |"
-            echo "|-------|-------------------|"
-          } > "$BODY_FILE"
-          for m in $MODULES; do
-            if [ -f "$m/pom.xml" ]; then
-              VER=$(mvn -q -f "$m/pom.xml" -DforceStdout help:evaluate -Dexpression=project.version | tr -d '\r' | tail -n1)
-              echo "| $m | $VER |" >> "$BODY_FILE"
-            fi
-          done
-          {
-            echo
-            echo "## Info"
-            echo "- Tag: \`${{ github.ref_name }}\`"
-            echo "- Commit: \`${{ github.sha }}\`"
-          } >> "$BODY_FILE"
-          echo "body_path=$BODY_FILE" >> "$GITHUB_OUTPUT"
+          CUR="${GITHUB_REF_NAME}"
+          PREV=$(git tag --sort=-creatordate | grep '^v' | grep -v "^${CUR}$" | head -n1 || true)
+          MODULES=""
+          if [ -z "${PREV}" ]; then
+            MODULES="dbadvisor-core dbadvisor-hibernate dbadvisor-h2 dbadvisor-postgresql"
+          else
+            DIFF=$(git diff -U0 "${PREV}"..."${CUR}" -- pom.xml | grep '^[+-]\s*<dbadvisor\..*\.version>' || true)
+            if [ -n "$DIFF" ]; then
+              while read -r line; do
+                n=$(printf "%s\n" "$line" | sed -E 's/.*<dbadvisor\.([a-z0-9-]+)\.version>.*/\1/')
+                [ -n "$n" ] && MODULES="$MODULES dbadvisor-$n"
+              done <<EOF
+  $DIFF
+  EOF
+  fi
+  MODULES=$(echo "$MODULES" | xargs -n1 | sort -u | xargs || true)
+  fi
+  echo "modules=$MODULES" >> "$GITHUB_OUTPUT"
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: dbadvisor ${{ steps.versions.outputs.tag_version }}
-          body_path: ${{ steps.notes.outputs.body_path }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+- name: Deploy BOM
+  env:
+    MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+  run: |
+    mvn -B -U -DskipTests -Dgpg.executable=gpg -Dgpg.args="--batch --yes --pinentry-mode loopback" deploy -f dbadvisor-bom/pom.xml
+
+- name: Deploy changed modules
+  if: ${{ steps.changed.outputs.modules != '' }}
+  env:
+    MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+  run: |
+    set -euo pipefail
+    for m in ${{ steps.changed.outputs.modules }}; do
+      mvn -B -U -DskipTests -Dgpg.executable=gpg -Dgpg.args="--batch --yes --pinentry-mode loopback" deploy -f "$m/pom.xml"
+    done
+
+- name: Collect module versions and prepare release notes
+  id: notes
+  shell: bash
+  run: |
+    set -euo pipefail
+    BODY_FILE="RELEASE_BODY.md"
+    CORE=$(xmllint --xpath 'string(//project/properties/dbadvisor.core.version)' pom.xml)
+    HIB=$(xmllint --xpath 'string(//project/properties/dbadvisor.hibernate.version)' pom.xml)
+    H2=$(xmllint --xpath 'string(//project/properties/dbadvisor.h2.version)' pom.xml)
+    PG=$(xmllint --xpath 'string(//project/properties/dbadvisor.postgresql.version)' pom.xml)
+    {
+      echo "# dbadvisor ${{ steps.versions.outputs.tag_version }}"
+      echo
+      echo "## Modules version"
+      echo
+      echo "| Module | Version |"
+      echo "|-------|---------|"
+      echo "| dbadvisor-bom | ${{ steps.versions.outputs.tag_version }} |"
+      echo "| dbadvisor-core | ${CORE} |"
+      echo "| dbadvisor-hibernate | ${HIB} |"
+      echo "| dbadvisor-h2 | ${H2} |"
+      echo "| dbadvisor-postgresql | ${PG} |"
+      echo
+      echo "## Info"
+      echo "- Tag: \`${{ github.ref_name }}\`"
+      echo "- Commit: \`${{ github.sha }}\`"
+    } > "$BODY_FILE"
+    echo "body_path=$BODY_FILE" >> "$GITHUB_OUTPUT"
+
+- name: Create GitHub Release
+  uses: softprops/action-gh-release@v2
+  with:
+    tag_name: ${{ github.ref_name }}
+    name: dbadvisor ${{ steps.versions.outputs.tag_version }}
+    body_path: ${{ steps.notes.outputs.body_path }}
+  env:
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

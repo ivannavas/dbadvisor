@@ -25,6 +25,7 @@
         <dependency>
             <groupId>io.github.ivannavas</groupId>
             <artifactId>dbadvisor-core</artifactId>
+            <version>${dbadvisor.core.version}</version>
         </dependency>
 
         <dependency>
