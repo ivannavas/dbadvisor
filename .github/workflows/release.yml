@@ -19,20 +19,55 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Set up JDK 21
+      - name: Set up JDK 21 + GPG
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
           cache: maven
-          server-id: central
-          server-username: CENTRAL_USERNAME
-          server-password: CENTRAL_PASSWORD
           gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
           gpg-passphrase: ${{ secrets.GPG_PASSPHRASE }}
+
+      - name: Generate Maven settings.xml from env
         env:
           CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
           CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${HOME}/.m2"
+          cat > "${HOME}/.m2/settings.xml" <<EOF
+          <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                    xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">
+            <servers>
+              <!-- Debe coincidir con <distributionManagement>/<repository>/<id> -->
+              <server>
+                <id>ossrh</id>
+                <username>${CENTRAL_USERNAME}</username>
+                <password>${CENTRAL_PASSWORD}</password>
+              </server>
+              <server>
+                <id>central</id>
+                <username>${CENTRAL_USERNAME}</username>
+                <password>${CENTRAL_PASSWORD}</password>
+              </server>
+            </servers>
+            <profiles>
+              <profile>
+                <id>gpg</id>
+                <properties>
+                  <gpg.executable>gpg</gpg.executable>
+                  <gpg.passphrase>${MAVEN_GPG_PASSPHRASE}</gpg.passphrase>
+                </properties>
+              </profile>
+            </profiles>
+            <activeProfiles>
+              <activeProfile>gpg</activeProfile>
+            </activeProfiles>
+          </settings>
+          EOF
 
       - name: Install XML tools
         run: |
@@ -82,7 +117,6 @@ jobs:
 
           MODULES=""
           if [ -z "${PREV}" ]; then
-            # Primer release con tags: publica todo lo básico
             MODULES="dbadvisor-core dbadvisor-hibernate dbadvisor-h2 dbadvisor-postgresql"
           else
             DIFF=$(git diff -U0 "${PREV}"..."${CUR}" -- pom.xml | grep -E '^[+-]\s*<dbadvisor\..*\.version>' || true)
@@ -96,9 +130,7 @@ jobs:
             fi
           fi
 
-          # normaliza y quita duplicados
           MODULES=$(printf "%s\n" $MODULES | xargs -n1 2>/dev/null | sort -u | xargs 2>/dev/null || true)
-
           echo "modules=$MODULES" >> "$GITHUB_OUTPUT"
 
       - name: Deploy BOM
