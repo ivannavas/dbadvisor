@@ -28,46 +28,44 @@ jobs:
           gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
           gpg-passphrase: ${{ secrets.GPG_PASSPHRASE }}
 
-      - name: Generate Maven settings.xml from env
+      - name: Generate Maven settings.xml from env (no passphrase)
         env:
           CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
           CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
-          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "${HOME}/.m2"
-          cat > "${HOME}/.m2/settings.xml" <<EOF
+          cat > "${HOME}/.m2/settings.xml" <<'EOF'
           <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
                     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                     xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">
             <servers>
-              <!-- Debe coincidir con <distributionManagement>/<repository>/<id> -->
               <server>
                 <id>ossrh</id>
-                <username>${CENTRAL_USERNAME}</username>
-                <password>${CENTRAL_PASSWORD}</password>
+                <username>${env.CENTRAL_USERNAME}</username>
+                <password>${env.CENTRAL_PASSWORD}</password>
               </server>
               <server>
                 <id>central</id>
-                <username>${CENTRAL_USERNAME}</username>
-                <password>${CENTRAL_PASSWORD}</password>
+                <username>${env.CENTRAL_USERNAME}</username>
+                <password>${env.CENTRAL_PASSWORD}</password>
               </server>
             </servers>
-            <profiles>
-              <profile>
-                <id>gpg</id>
-                <properties>
-                  <gpg.executable>gpg</gpg.executable>
-                  <gpg.passphrase>${MAVEN_GPG_PASSPHRASE}</gpg.passphrase>
-                </properties>
-              </profile>
-            </profiles>
-            <activeProfiles>
-              <activeProfile>gpg</activeProfile>
-            </activeProfiles>
           </settings>
           EOF
+
+      - name: Prepare GPG for CI
+        env:
+          GPG_TTY: ${{ env.GPG_TTY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.gnupg
+          echo 'allow-loopback-pinentry' >> ~/.gnupg/gpg-agent.conf
+          echo 'pinentry-mode loopback' >> ~/.gnupg/gpg.conf
+          echo "GPG_TTY=${GITHUB_WORKSPACE}" # solo para tener algo definido
+          gpgconf --kill gpg-agent || true
 
       - name: Install XML tools
         run: |
@@ -90,6 +88,11 @@ jobs:
             exit 1
           fi
 
+          # Por si acaso: prohibimos gpg.passphrase en ficheros
+          if grep -R --line-number -E 'gpg\.passphrase|MAVEN_GPG_PASSPHRASE\s*=' .mvn || true; then
+            echo "No metas gpg.passphrase en .mvn/maven.config ni en settings. Usa variable de entorno." >&2
+          fi
+
           REV_LINE=$(tr -d '\r' < "$CONFIG_FILE" | tr ' ' '\n' | grep -E '^-Drevision=' | head -n1 || true)
           if [ -z "$REV_LINE" ]; then
             echo "Could not find -Drevision in $CONFIG_FILE" >&2
@@ -97,11 +100,8 @@ jobs:
           fi
 
           REV="${REV_LINE#-Drevision=}"
-          REV="${REV%\"}"
-          REV="${REV#\"}"
-          REV="${REV%-SNAPSHOT}"
+          REV="${REV%\"}"; REV="${REV#\"}"; REV="${REV%-SNAPSHOT}"
           echo "maven_revision=$REV" >> "$GITHUB_OUTPUT"
-
           if [ "$REV" != "$TAG_VER" ]; then
             echo "Tag ($TAG_VER) does not match maven revision ($REV)." >&2
             exit 1
@@ -123,13 +123,10 @@ jobs:
             if [ -n "$DIFF" ]; then
               while IFS= read -r line; do
                 n=$(printf "%s\n" "$line" | sed -E 's/.*<dbadvisor\.([a-z0-9-]+)\.version>.*/\1/')
-                if [ -n "$n" ]; then
-                  MODULES="$MODULES dbadvisor-$n"
-                fi
+                [ -n "$n" ] && MODULES="$MODULES dbadvisor-$n"
               done <<< "$DIFF"
             fi
           fi
-
           MODULES=$(printf "%s\n" $MODULES | xargs -n1 2>/dev/null | sort -u | xargs 2>/dev/null || true)
           echo "modules=$MODULES" >> "$GITHUB_OUTPUT"
 
@@ -138,7 +135,9 @@ jobs:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           set -euo pipefail
-          mvn -B -U -DskipTests -Dgpg.executable=gpg -Dgpg.args="--batch --yes --pinentry-mode loopback" \
+          mvn -B -U -DskipTests \
+            -Dgpg.executable=gpg \
+            -Dgpg.args="--batch --yes --pinentry-mode loopback" \
             deploy -f dbadvisor-bom/pom.xml
 
       - name: Deploy changed modules
@@ -149,7 +148,9 @@ jobs:
           set -euo pipefail
           for m in ${{ steps.changed.outputs.modules }}; do
             echo "Deploying $m"
-            mvn -B -U -DskipTests -Dgpg.executable=gpg -Dgpg.args="--batch --yes --pinentry-mode loopback" \
+            mvn -B -U -DskipTests \
+              -Dgpg.executable=gpg \
+              -Dgpg.args="--batch --yes --pinentry-mode loopback" \
               deploy -f "$m/pom.xml"
           done
 
@@ -163,7 +164,6 @@ jobs:
           HIB=$(xmllint --xpath 'string(//project/properties/dbadvisor.hibernate.version)' pom.xml)
           H2=$(xmllint --xpath 'string(//project/properties/dbadvisor.h2.version)' pom.xml)
           PG=$(xmllint --xpath 'string(//project/properties/dbadvisor.postgresql.version)' pom.xml)
-
           {
             echo "# dbadvisor ${{ steps.versions.outputs.tag_version }}"
             echo
@@ -181,7 +181,6 @@ jobs:
             echo "- Tag: \`${{ github.ref_name }}\`"
             echo "- Commit: \`${{ github.sha }}\`"
           } > "$BODY_FILE"
-
           echo "body_path=$BODY_FILE" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
@@ -192,3 +191,4 @@ jobs:
           body_path: ${{ steps.notes.outputs.body_path }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
