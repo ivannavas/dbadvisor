@@ -11,7 +11,6 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,10 +27,10 @@ jobs:
           gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
           gpg-passphrase: ${{ secrets.GPG_PASSPHRASE }}
 
-      - name: Generate Maven settings.xml from env (no passphrase)
+      - name: Generate Maven settings.xml (Central token)
         env:
-          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
-          CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
+          CENTRAL_TOKEN_USERNAME: ${{ secrets.CENTRAL_TOKEN_USERNAME }}
+          CENTRAL_TOKEN_PASSWORD: ${{ secrets.CENTRAL_TOKEN_PASSWORD }}
         shell: bash
         run: |
           set -euo pipefail
@@ -42,29 +41,20 @@ jobs:
                     xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">
             <servers>
               <server>
-                <id>ossrh</id>
-                <username>${env.CENTRAL_USERNAME}</username>
-                <password>${env.CENTRAL_PASSWORD}</password>
-              </server>
-              <server>
                 <id>central</id>
-                <username>${env.CENTRAL_USERNAME}</username>
-                <password>${env.CENTRAL_PASSWORD}</password>
+                <username>${env.CENTRAL_TOKEN_USERNAME}</username>
+                <password>${env.CENTRAL_TOKEN_PASSWORD}</password>
               </server>
             </servers>
           </settings>
           EOF
 
       - name: Prepare GPG for CI
-        env:
-          GPG_TTY: ${{ env.GPG_TTY }}
-        shell: bash
         run: |
           set -euo pipefail
           mkdir -p ~/.gnupg
           echo 'allow-loopback-pinentry' >> ~/.gnupg/gpg-agent.conf
           echo 'pinentry-mode loopback' >> ~/.gnupg/gpg.conf
-          echo "GPG_TTY=${GITHUB_WORKSPACE}" # solo para tener algo definido
           gpgconf --kill gpg-agent || true
 
       - name: Install XML tools
