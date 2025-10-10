@@ -137,7 +137,7 @@
                     <artifactId>flatten-maven-plugin</artifactId>
                     <version>1.7.3</version>
                     <configuration>
-                        <flattenMode>resolveCiFriendliesOnly</flattenMode>
+                        <flattenMode>oss</flattenMode>
                         <flattenDependencyMode>all</flattenDependencyMode>
                         <updatePomFile>true</updatePomFile>
                     </configuration>
@@ -145,21 +145,18 @@
                         <execution>
                             <id>flatten</id>
                             <phase>process-resources</phase>
-                            <goals>
-                                <goal>flatten</goal>
-                            </goals>
+                            <goals><goal>flatten</goal></goals>
                         </execution>
                         <execution>
                             <id>flatten-clean</id>
                             <phase>clean</phase>
-                            <goals>
-                                <goal>clean</goal>
-                            </goals>
+                            <goals><goal>clean</goal></goals>
                         </execution>
                     </executions>
                 </plugin>
             </plugins>
         </pluginManagement>
+
 
         <plugins>
             <plugin>
