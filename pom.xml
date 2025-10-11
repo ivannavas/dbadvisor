@@ -160,23 +160,6 @@
 
         <plugins>
             <plugin>
-                <groupId>org.projectlombok</groupId>
-                <artifactId>lombok-maven-plugin</artifactId>
-                <version>1.18.42.0</version>
-                <executions>
-                    <execution>
-                        <id>delombok</id>
-                        <phase>generate-sources</phase>
-                        <goals><goal>delombok</goal></goals>
-                        <configuration>
-                            <sourceDirectory>${project.basedir}/src/main/java</sourceDirectory>
-                            <target>${project.build.directory}/delombok</target>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-
-            <plugin>
                 <groupId>org.sonatype.central</groupId>
                 <artifactId>central-publishing-maven-plugin</artifactId>
                 <version>0.9.0</version>
@@ -248,6 +231,37 @@
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>flatten-maven-plugin</artifactId>
                 <version>1.7.3</version>
+            </plugin>
+
+            <plugin>
+                <groupId>org.projectlombok</groupId>
+                <artifactId>lombok-maven-plugin</artifactId>
+                <version>1.18.20.0</version>
+
+                <dependencies>
+                    <dependency>
+                        <groupId>org.projectlombok</groupId>
+                        <artifactId>lombok</artifactId>
+                        <version>${lombok.version}</version>
+                    </dependency>
+                </dependencies>
+
+                <executions>
+                    <execution>
+                        <id>delombok</id>
+                        <phase>generate-sources</phase>
+                        <goals><goal>delombok</goal></goals>
+                        <configuration>
+                            <sourceDirectory>${project.basedir}/src/main/java</sourceDirectory>
+
+                            <outputDirectory>${project.build.directory}/delombok</outputDirectory>
+
+                            <addOutputDirectory>true</addOutputDirectory>
+                            <encoding>${project.build.sourceEncoding}</encoding>
+                            <verbose>false</verbose>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>
