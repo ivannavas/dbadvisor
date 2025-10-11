@@ -99,71 +99,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           CUR="${GITHUB_REF_NAME}"
+          PREV=$(git tag --sort=-creatordate | grep '^v' | grep -v "^${CUR}$" | head -n1 || true)
 
-          PREV=$(git tag --list 'v*' --sort=-v:refname | grep -v "^${CUR}$" | head -n1 || true)
-
-          extract_versions () {
-            local src="$1" # "-" para stdin, o ruta de fichero
-            xmllint --xpath '//project/properties/*[starts-with(name(), "dbadvisor.") and contains(name(), ".version")]' "$src" 2>/dev/null \
-              | sed -E 's/></>\n</g' \
-              | sed -nE 's#<([a-zA-Z0-9_.-]+)>([^<]+)</\1>#\1 \2#p' \
-              | sort
-          }
-
-          MODULE_DIRS=$(xmllint --format pom.xml 2>/dev/null \
-            | awk '/<modules>/{f=1;next}/<\/modules>/{f=0}f && /<module>/{gsub(/.*<module>|<\/module>.*/,""); print}')
-          MODULE_DIRS=$(printf "%s\n" $MODULE_DIRS | xargs -n1 2>/dev/null | sort -u | xargs 2>/dev/null || true)
-
-          CUR_LIST=$(extract_versions pom.xml)
-
-          if [ -n "${PREV}" ]; then
-            git show "${PREV}:pom.xml" > /tmp/pom_prev.xml
-            PREV_LIST=$(extract_versions /tmp/pom_prev.xml || true)
-          else
-            PREV_LIST=""
-          fi
-
-          prop_to_module () {
-            local prop="$1"
-            local key
-            key=$(printf "%s" "$prop" | sed -E 's/^dbadvisor\.([^.]+)\.version$/\1/')
-            printf "dbadvisor-%s" "$key"
-          }
-
-          # shellcheck disable=SC2034
-          declare -A PREV_MAP
-          while read -r p v; do
-            [ -n "${p:-}" ] && PREV_MAP["$p"]="$v"
-          done <<< "${PREV_LIST}"
-
-          CHANGED=""
+          MODULES=""
           if [ -z "${PREV}" ]; then
-            for m in $MODULE_DIRS; do
-              [ "$m" = "dbadvisor-bom" ] && continue
-              CHANGED="$CHANGED $m"
-            done
+            MODULES="dbadvisor-core dbadvisor-hibernate dbadvisor-h2 dbadvisor-postgresql"
           else
-            while read -r p_now v_now; do
-              [ -z "${p_now:-}" ] && continue
-              v_prev="${PREV_MAP[$p_now]:-}"
-              if [ "$v_now" != "$v_prev" ] || [ -z "$v_prev" ]; then
-                m=$(prop_to_module "$p_now")
-                if printf "%s\n" $MODULE_DIRS | grep -qx "$m"; then
-                  CHANGED="$CHANGED $m"
-                fi
-              fi
-            done <<< "${CUR_LIST}"
+            DIFF=$(git diff -U0 "${PREV}"..."${CUR}" -- pom.xml | grep -E '^[+-]\s*<dbadvisor\..*\.version>' || true)
+            if [ -n "$DIFF" ]; then
+              while IFS= read -r line; do
+                n=$(printf "%s\n" "$line" | sed -E 's/.*<dbadvisor\.([a-z0-9-]+)\.version>.*/\1/')
+                [ -n "$n" ] && MODULES="$MODULES dbadvisor-$n"
+              done <<< "$DIFF"
+            fi
           fi
-
-          CHANGED=$(printf "%s\n" $CHANGED | xargs -n1 2>/dev/null | sort -u | xargs 2>/dev/null || true)
-          echo "modules=$CHANGED" >> "$GITHUB_OUTPUT"
-          echo "prev_tag=${PREV:-}" >> "$GITHUB_OUTPUT"
-
-          echo "Tag previo: ${PREV:-<none>}"
-          echo "Detected modules: ${MODULE_DIRS:-<none>}"
-          echo "Modules to deploy: ${CHANGED:-<none>}"
+          MODULES=$(printf "%s\n" $MODULES | xargs -n1 2>/dev/null | sort -u | xargs 2>/dev/null || true)
+          echo "modules=$MODULES" >> "$GITHUB_OUTPUT"
 
       - name: Deploy BOM
         env:
