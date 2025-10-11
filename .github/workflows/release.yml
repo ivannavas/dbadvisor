@@ -147,22 +147,8 @@ jobs:
         run: |
           set -euo pipefail
           BODY_FILE="RELEASE_BODY.md"
-          CORE=$(xmllint --xpath 'string(//project/properties/dbadvisor.core.version)' pom.xml)
-          HIB=$(xmllint --xpath 'string(//project/properties/dbadvisor.hibernate.version)' pom.xml)
-          H2=$(xmllint --xpath 'string(//project/properties/dbadvisor.h2.version)' pom.xml)
-          PG=$(xmllint --xpath 'string(//project/properties/dbadvisor.postgresql.version)' pom.xml)
           {
             echo "# dbadvisor ${{ steps.versions.outputs.tag_version }}"
-            echo
-            echo "## Modules version"
-            echo
-            echo "| Module | Version |"
-            echo "|--------|---------|"
-            echo "| dbadvisor-bom | ${{ steps.versions.outputs.tag_version }} |"
-            echo "| dbadvisor-core | ${CORE} |"
-            echo "| dbadvisor-hibernate | ${HIB} |"
-            echo "| dbadvisor-h2 | ${H2} |"
-            echo "| dbadvisor-postgresql | ${PG} |"
             echo
             echo "## Info"
             echo "- Tag: \`${{ github.ref_name }}\`"
