@@ -66,7 +66,7 @@
         <hibernate.version>6.5.2.Final</hibernate.version>
         <lombok.version>1.18.42</lombok.version>
 
-        <dbadvisor.core.version>0.2.7</dbadvisor.core.version>
+        <dbadvisor.core.version>0.2.6</dbadvisor.core.version>
         <dbadvisor.hibernate.version>0.2.1</dbadvisor.hibernate.version>
         <dbadvisor.h2.version>0.2.1</dbadvisor.h2.version>
         <dbadvisor.postgresql.version>0.2.1</dbadvisor.postgresql.version>
@@ -237,7 +237,6 @@
                 <groupId>org.projectlombok</groupId>
                 <artifactId>lombok-maven-plugin</artifactId>
                 <version>1.18.20.0</version>
-
                 <dependencies>
                     <dependency>
                         <groupId>org.projectlombok</groupId>
@@ -245,7 +244,6 @@
                         <version>${lombok.version}</version>
                     </dependency>
                 </dependencies>
-
                 <executions>
                     <execution>
                         <id>delombok</id>
@@ -253,12 +251,9 @@
                         <goals><goal>delombok</goal></goals>
                         <configuration>
                             <sourceDirectory>${project.basedir}/src/main/java</sourceDirectory>
-
                             <outputDirectory>${project.build.directory}/delombok</outputDirectory>
-
                             <addOutputDirectory>true</addOutputDirectory>
                             <encoding>${project.build.sourceEncoding}</encoding>
-                            <verbose>false</verbose>
                         </configuration>
                     </execution>
                 </executions>
