@@ -19,6 +19,6 @@ class DbadvisorH2Test {
                 SELECT STATEMENT  (cost=3 card=1 bytes=4)
                   TABLE ACCESS FULL EMPLOYEES  (cost=3 card=1 bytes=4)
                 """;
-        dbadvisor.runAnalysis(rawPlan);
+        dbadvisor.runQueryAnalysis(rawPlan);
     }
 }

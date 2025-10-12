@@ -1,6 +1,8 @@
 package io.github.ivannavas.dbadvisor.core;
 
 import io.github.ivannavas.dbadvisor.core.advisors.Advisor;
+import io.github.ivannavas.dbadvisor.core.advisors.InitialAdvisor;
+import io.github.ivannavas.dbadvisor.core.advisors.QueryAdvisor;
 import io.github.ivannavas.dbadvisor.core.items.Plan;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
@@ -24,16 +26,37 @@ public class Dbadvisor {
         return configurationBuilder.build();
     }
 
-    public void runAnalysis(String rawPlan) {
+    public void runQueryAnalysis(String rawPlan) {
         Configuration configuration = configurationBuilder.build();
         Plan plan = configuration.getPlanParser().parse(rawPlan);
 
         for (Advisor<?> advisor : configuration.getAdvisors()) {
-            processAdvisor(advisor, plan);
+            if (!(advisor instanceof QueryAdvisor<?>)) {
+                continue;
+            }
+
+            processQueryAdvisor((QueryAdvisor<?>) advisor, plan);
         }
     }
 
-    private <T> void processAdvisor(Advisor<T> advisor, Plan plan) {
+    public void runInitialAnalysis() {
+        Configuration configuration = configurationBuilder.build();
+        Plan plan = configuration.getPlanParser().parse("");
+
+        for (Advisor<?> advisor : configuration.getAdvisors()) {
+            if (!(advisor instanceof InitialAdvisor<?>)) {
+                continue;
+            }
+
+            processInitialAdvisor((InitialAdvisor<?>) advisor);
+        }
+    }
+
+    private <A> void processQueryAdvisor(QueryAdvisor<A> advisor, Plan plan) {
         advisor.getAdvise(plan).forEach(advise -> log.info(advisor.getAdviseMessage(advise)));
+    }
+
+    private <A> void processInitialAdvisor(InitialAdvisor<A> advisor) {
+        advisor.getAdvise().forEach(advise -> log.info(advisor.getAdviseMessage(advise)));
     }
 }

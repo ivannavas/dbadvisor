@@ -6,7 +6,7 @@ import io.github.ivannavas.dbadvisor.core.items.Plan;
 
 import java.util.List;
 
-public class IndexAdvisor implements Advisor<IndexAdvise> {
+public class IndexAdvisor extends QueryAdvisor<IndexAdvise> {
 
     @Override
     public List<IndexAdvise> getAdvise(Plan plan) {

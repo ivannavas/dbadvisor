@@ -4,6 +4,6 @@ import io.github.ivannavas.dbadvisor.core.items.Plan;
 
 import java.util.List;
 
-public interface Advisor<A> {
-    String getAdviseMessage(A advise);
+public abstract class QueryAdvisor<A> implements Advisor<A> {
+    public abstract List<A> getAdvise(Plan plan);
 }

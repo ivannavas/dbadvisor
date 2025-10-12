@@ -32,6 +32,8 @@ public class AutoInstallContributor implements ServiceContributor {
             return;
         }
 
+        dbadvisor.runInitialAnalysis();
+
         String dialect = String.valueOf(settings.get(AvailableSettings.DIALECT)).toLowerCase();
         PlanParser planParser =
                 dialect.contains("postgresql") ? new PostgresqlJsonPlanParser() :
