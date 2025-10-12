@@ -41,7 +41,6 @@
     </developers>
 
     <modules>
-        <module>dbadvisor-bom</module>
         <module>dbadvisor-core</module>
         <module>dbadvisor-postgresql</module>
         <module>dbadvisor-h2</module>
@@ -66,21 +65,35 @@
         <hibernate.version>6.5.2.Final</hibernate.version>
         <lombok.version>1.18.42</lombok.version>
 
-        <dbadvisor.core.version>0.3.5</dbadvisor.core.version>
-        <dbadvisor.hibernate.version>0.3.5</dbadvisor.hibernate.version>
-        <dbadvisor.h2.version>0.3.5</dbadvisor.h2.version>
-        <dbadvisor.postgresql.version>0.3.5</dbadvisor.postgresql.version>
+        <dbadvisor.core.version>0.3.6</dbadvisor.core.version>
+        <dbadvisor.hibernate.version>0.3.6</dbadvisor.hibernate.version>
+        <dbadvisor.h2.version>0.3.6</dbadvisor.h2.version>
+        <dbadvisor.postgresql.version>0.3.6</dbadvisor.postgresql.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
             <dependency>
                 <groupId>io.github.ivannavas</groupId>
-                <artifactId>dbadvisor-bom</artifactId>
-                <version>${revision}</version>
-                <type>pom</type>
-                <scope>import</scope>
+                <artifactId>dbadvisor-core</artifactId>
+                <version>${dbadvisor.core.version}</version>
             </dependency>
+            <dependency>
+                <groupId>io.github.ivannavas</groupId>
+                <artifactId>dbadvisor-postgresql</artifactId>
+                <version>${dbadvisor.postgresql.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.ivannavas</groupId>
+                <artifactId>dbadvisor-h2</artifactId>
+                <version>${dbadvisor.h2.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.ivannavas</groupId>
+                <artifactId>dbadvisor-hibernate</artifactId>
+                <version>${dbadvisor.hibernate.version}</version>
+            </dependency>
+
             <dependency>
                 <groupId>org.junit.jupiter</groupId>
                 <artifactId>junit-jupiter-api</artifactId>

@@ -124,7 +124,6 @@ jobs:
           CHANGED="${{ steps.changed.outputs.modules }}"
           ORDERED=""
           for m in $POM_ORDER; do
-            [ "$m" = "dbadvisor-bom" ] && continue
             for c in $CHANGED; do
               if [ "$c" = "$m" ]; then
                 ORDERED="$ORDERED $m"
@@ -133,13 +132,6 @@ jobs:
           done
           ORDERED=$(printf "%s\n" $ORDERED | awk '!v[$0]++' | xargs 2>/dev/null || true)
           echo "modules=$ORDERED" >> "$GITHUB_OUTPUT"
-
-      - name: Deploy BOM
-        env:
-          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-        run: |
-          set -euo pipefail
-          mvn -B -U -DskipTests -Dgpg.executable=gpg -Dgpg.args="--batch --yes --pinentry-mode loopback" deploy -f dbadvisor-bom/pom.xml
 
       - name: Deploy changed modules in parent order
         if: ${{ steps.ordered.outputs.modules != '' }}
@@ -168,7 +160,7 @@ jobs:
             echo "## Published modules (parent order)"
             MODS="${{ steps.ordered.outputs.modules }}"
             if [ -z "$MODS" ]; then
-              echo "- BOM only"
+              echo "- No modules changed"
             else
               for m in $MODS; do echo "- $m"; done
             fi
