@@ -66,10 +66,10 @@
         <hibernate.version>6.5.2.Final</hibernate.version>
         <lombok.version>1.18.42</lombok.version>
 
-        <dbadvisor.core.version>0.3.3</dbadvisor.core.version>
-        <dbadvisor.hibernate.version>0.3.3</dbadvisor.hibernate.version>
-        <dbadvisor.h2.version>0.3.3</dbadvisor.h2.version>
-        <dbadvisor.postgresql.version>0.3.3</dbadvisor.postgresql.version>
+        <dbadvisor.core.version>0.3.4</dbadvisor.core.version>
+        <dbadvisor.hibernate.version>0.3.4</dbadvisor.hibernate.version>
+        <dbadvisor.h2.version>0.3.4</dbadvisor.h2.version>
+        <dbadvisor.postgresql.version>0.3.4</dbadvisor.postgresql.version>
     </properties>
 
     <dependencyManagement>

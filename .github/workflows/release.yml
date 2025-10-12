@@ -18,7 +18,7 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Set up JDK 21 + GPG
+      - name: Set up JDK 21 and GPG
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -27,7 +27,7 @@ jobs:
           gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
           gpg-passphrase: ${{ secrets.GPG_PASSPHRASE }}
 
-      - name: Generate Maven settings.xml (Central token)
+      - name: Generate Maven settings.xml
         shell: bash
         run: |
           set -euo pipefail
@@ -58,9 +58,9 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y libxml2-utils
+          sudo apt-get install -y libxml2-utils xmlstarlet
 
-      - name: Determine tag version and revision from maven.config
+      - name: Determine tag version and revision
         id: versions
         shell: bash
         run: |
@@ -68,23 +68,19 @@ jobs:
           TAG_NAME="${GITHUB_REF_NAME}"
           TAG_VER="${TAG_NAME#v}"
           echo "tag_version=$TAG_VER" >> "$GITHUB_OUTPUT"
-
           CONFIG_FILE=".mvn/maven.config"
           if [ ! -f "$CONFIG_FILE" ]; then
             echo "$CONFIG_FILE not found" >&2
             exit 1
           fi
-
           if grep -R --line-number -E 'gpg\.passphrase|MAVEN_GPG_PASSPHRASE\s*=' .mvn || true; then
-            echo "No metas gpg.passphrase en .mvn/maven.config ni en settings. Usa variable de entorno." >&2
+            echo "Do not store GPG passphrases in files. Use environment variables." >&2
           fi
-
           REV_LINE=$(tr -d '\r' < "$CONFIG_FILE" | tr ' ' '\n' | grep -E '^-Drevision=' | head -n1 || true)
           if [ -z "$REV_LINE" ]; then
             echo "Could not find -Drevision in $CONFIG_FILE" >&2
             exit 1
           fi
-
           REV="${REV_LINE#-Drevision=}"
           REV="${REV%\"}"; REV="${REV#\"}"; REV="${REV%-SNAPSHOT}"
           echo "maven_revision=$REV" >> "$GITHUB_OUTPUT"
@@ -93,79 +89,70 @@ jobs:
             exit 1
           fi
 
-      - name: Read module order from parent POM
-        id: order
-        shell: bash
-        run: |
-          set -euo pipefail
-          ORDER_RAW=$(xmllint --xpath 'string-join(/project/modules/module/text(), " ")' pom.xml)
-          ORDER=""
-          for m in $ORDER_RAW; do
-            if [ "$m" != "dbadvisor-bom" ]; then
-              ORDER="$ORDER $m"
-            fi
-          done
-          ORDER=$(echo "$ORDER" | xargs || true)
-          echo "order=$ORDER" >> "$GITHUB_OUTPUT"
-
-      - name: Detect changed module versions and preserve POM order
+      - name: Detect changed module versions
         id: changed
         shell: bash
         run: |
           set -euo pipefail
           CUR="${GITHUB_REF_NAME}"
           PREV=$(git tag --sort=-creatordate | grep '^v' | grep -v "^${CUR}$" | head -n1 || true)
-
+          MODULES=""
           if [ -z "${PREV}" ]; then
-            MODULES="${{ steps.order.outputs.order }}"
+            MODULES="dbadvisor-core dbadvisor-hibernate dbadvisor-h2 dbadvisor-postgresql"
           else
             DIFF=$(git diff -U0 "${PREV}"..."${CUR}" -- pom.xml | grep -E '^[+-]\s*<dbadvisor\..*\.version>' || true)
-
-            CHANGED=""
             if [ -n "$DIFF" ]; then
               while IFS= read -r line; do
-                n=$(printf "%s\n" "$line" | sed -E 's/.*<dbadvisor\.([a-z0-9-]+)\.version>.*/dbadvisor-\1/')
-                [ -n "$n" ] && CHANGED="$CHANGED $n"
+                n=$(printf "%s\n" "$line" | sed -E 's/.*<dbadvisor\.([a-z0-9-]+)\.version>.*/\1/')
+                [ -n "$n" ] && MODULES="$MODULES dbadvisor-$n"
               done <<< "$DIFF"
             fi
-            CHANGED=$(echo "$CHANGED" | xargs -n1 2>/dev/null | sort -u | xargs 2>/dev/null || true)
-          
-            MODULES=""
-            for m in ${{ steps.order.outputs.order }}; do
-              if echo " $CHANGED " | grep -q " $m "; then
-                MODULES="$MODULES $m"
+          fi
+          MODULES=$(printf "%s\n" $MODULES | xargs -n1 2>/dev/null | sort -u | xargs 2>/dev/null || true)
+          echo "modules=$MODULES" >> "$GITHUB_OUTPUT"
+
+      - name: Order changed modules as in parent POM
+        id: ordered
+        shell: bash
+        run: |
+          set -euo pipefail
+          POM_ORDER=$(xmlstarlet sel -N x="http://maven.apache.org/POM/4.0.0" -t -m "/x:project/x:modules/x:module" -v "." -n pom.xml | xargs 2>/dev/null || true)
+          if [ -z "$POM_ORDER" ]; then
+            echo "Could not extract modules from parent pom.xml" >&2
+            exit 1
+          fi
+          CHANGED="${{ steps.changed.outputs.modules }}"
+          ORDERED=""
+          for m in $POM_ORDER; do
+            [ "$m" = "dbadvisor-bom" ] && continue
+            for c in $CHANGED; do
+              if [ "$c" = "$m" ]; then
+                ORDERED="$ORDERED $m"
               fi
             done
-            MODULES=$(echo "$MODULES" | xargs || true)
-          fi
-
-          echo "modules=$MODULES" >> "$GITHUB_OUTPUT"
+          done
+          ORDERED=$(printf "%s\n" $ORDERED | awk '!v[$0]++' | xargs 2>/dev/null || true)
+          echo "modules=$ORDERED" >> "$GITHUB_OUTPUT"
 
       - name: Deploy BOM
         env:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           set -euo pipefail
-          mvn -B -U -DskipTests \
-            -Dgpg.executable=gpg \
-            -Dgpg.args="--batch --yes --pinentry-mode loopback" \
-            deploy -f dbadvisor-bom/pom.xml
+          mvn -B -U -DskipTests -Dgpg.executable=gpg -Dgpg.args="--batch --yes --pinentry-mode loopback" deploy -f dbadvisor-bom/pom.xml
 
-      - name: Deploy changed modules in POM order
-        if: ${{ steps.changed.outputs.modules != '' }}
+      - name: Deploy changed modules in parent order
+        if: ${{ steps.ordered.outputs.modules != '' }}
         env:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           set -euo pipefail
-          for m in ${{ steps.changed.outputs.modules }}; do
+          for m in ${{ steps.ordered.outputs.modules }}; do
             echo "Deploying $m"
-            mvn -B -U -DskipTests \
-              -Dgpg.executable=gpg \
-              -Dgpg.args="--batch --yes --pinentry-mode loopback" \
-              deploy -f "$m/pom.xml"
+            mvn -B -U -DskipTests -Dgpg.executable=gpg -Dgpg.args="--batch --yes --pinentry-mode loopback" deploy -f "$m/pom.xml"
           done
 
-      - name: Collect module versions and prepare release notes
+      - name: Prepare release notes
         id: notes
         shell: bash
         run: |
@@ -178,8 +165,13 @@ jobs:
             echo "- Tag: \`${{ github.ref_name }}\`"
             echo "- Commit: \`${{ github.sha }}\`"
             echo
-            echo "## Deployed Modules"
-            echo "${{ steps.changed.outputs.modules || steps.order.outputs.order }}" | tr ' ' '\n' | sed '/^$/d' | sed 's/^/- /'
+            echo "## Published modules (parent order)"
+            MODS="${{ steps.ordered.outputs.modules }}"
+            if [ -z "$MODS" ]; then
+              echo "- BOM only"
+            else
+              for m in $MODS; do echo "- $m"; done
+            fi
           } > "$BODY_FILE"
           echo "body_path=$BODY_FILE" >> "$GITHUB_OUTPUT"
 
