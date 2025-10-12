@@ -1,13 +1,9 @@
-name: Release module on tag
+name: Release on tag
 
 on:
   push:
     tags:
-      - 'dbadvisor-bom-v*'
-      - 'dbadvisor-core-v*'
-      - 'dbadvisor-hibernate-v*'
-      - 'dbadvisor-h2-v*'
-      - 'dbadvisor-postgresql-v*'
+      - 'v*'
 
 permissions:
   contents: write
@@ -64,100 +60,126 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libxml2-utils
 
-      - name: Parse tag -> module + version
-        id: tag
+      - name: Determine tag version and revision from maven.config
+        id: versions
         shell: bash
         run: |
           set -euo pipefail
-          TAG="${GITHUB_REF_NAME}"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          TAG_NAME="${GITHUB_REF_NAME}"
+          TAG_VER="${TAG_NAME#v}"
+          echo "tag_version=$TAG_VER" >> "$GITHUB_OUTPUT"
 
-          case "$TAG" in
-            dbadvisor-bom-v*)         MOD="bom"         ;;
-            dbadvisor-core-v*)        MOD="core"        ;;
-            dbadvisor-hibernate-v*)   MOD="hibernate"   ;;
-            dbadvisor-h2-v*)          MOD="h2"          ;;
-            dbadvisor-postgresql-v*)  MOD="postgresql"  ;;
-            *) echo "Tag no reconocido: $TAG" >&2; exit 1 ;;
-          esac
-          VER="${TAG##*-v}"
-          echo "module=$MOD" >> "$GITHUB_OUTPUT"
-          echo "version=$VER" >> "$GITHUB_OUTPUT"
-
-      - name: Map module -> path/artifactId
-        id: map
-        shell: bash
-        run: |
-          set -euo pipefail
-          MOD="${{ steps.tag.outputs.module }}"
-          case "$MOD" in
-            bom)         PATH="dbadvisor-bom";         AID="dbadvisor-bom"         ;;
-            core)        PATH="dbadvisor-core";        AID="dbadvisor-core"        ;;
-            hibernate)   PATH="dbadvisor-hibernate";   AID="dbadvisor-hibernate"   ;;
-            h2)          PATH="dbadvisor-h2";          AID="dbadvisor-h2"          ;;
-            postgresql)  PATH="dbadvisor-postgresql";  AID="dbadvisor-postgresql"  ;;
-            *) echo "Módulo no mapeado: $MOD" >&2; exit 1 ;;
-          esac
-          echo "path=$PATH" >> "$GITHUB_OUTPUT"
-          echo "artifactId=$AID" >> "$GITHUB_OUTPUT"
-
-      - name: Validate module version in POMs
-        shell: bash
-        run: |
-          set -euo pipefail
-          MOD="${{ steps.tag.outputs.module }}"
-          VER="${{ steps.tag.outputs.version }}"
-
-          if [ "$MOD" = "bom" ]; then
-            xmllint --xpath "string(/project/version)" dbadvisor-bom/pom.xml >/dev/null 2>&1 || true
-          else
-            PROP="dbadvisor.${MOD}.version"
-            DECL=$(xmllint --xpath "string(/project/properties/${PROP})" pom.xml 2>/dev/null || true)
-            if [ -n "$DECL" ] && [ "$DECL" != "$VER" ]; then
-              echo "Aviso: ${PROP} en parent POM es '$DECL' y el tag es '$VER'." >&2
-              echo "Seguimos igualmente; confío en que sabes lo que haces." >&2
-            fi
+          CONFIG_FILE=".mvn/maven.config"
+          if [ ! -f "$CONFIG_FILE" ]; then
+            echo "$CONFIG_FILE not found" >&2
+            exit 1
           fi
 
-      - name: Deploy selected module (independiente)
+          if grep -R --line-number -E 'gpg\.passphrase|MAVEN_GPG_PASSPHRASE\s*=' .mvn || true; then
+            echo "No metas gpg.passphrase en .mvn/maven.config ni en settings. Usa variable de entorno." >&2
+          fi
+
+          REV_LINE=$(tr -d '\r' < "$CONFIG_FILE" | tr ' ' '\n' | grep -E '^-Drevision=' | head -n1 || true)
+          if [ -z "$REV_LINE" ]; then
+            echo "Could not find -Drevision in $CONFIG_FILE" >&2
+            exit 1
+          fi
+
+          REV="${REV_LINE#-Drevision=}"
+          REV="${REV%\"}"; REV="${REV#\"}"; REV="${REV%-SNAPSHOT}"
+          echo "maven_revision=$REV" >> "$GITHUB_OUTPUT"
+          if [ "$REV" != "$TAG_VER" ]; then
+            echo "Tag ($TAG_VER) does not match maven revision ($REV)." >&2
+            exit 1
+          fi
+
+      - name: Read module order from parent POM
+        id: order
+        shell: bash
+        run: |
+          set -euo pipefail
+          ORDER_RAW=$(xmllint --xpath 'string-join(/project/modules/module/text(), " ")' pom.xml)
+          ORDER=""
+          for m in $ORDER_RAW; do
+            if [ "$m" != "dbadvisor-bom" ]; then
+              ORDER="$ORDER $m"
+            fi
+          done
+          ORDER=$(echo "$ORDER" | xargs || true)
+          echo "order=$ORDER" >> "$GITHUB_OUTPUT"
+
+      - name: Detect changed module versions and preserve POM order
+        id: changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          CUR="${GITHUB_REF_NAME}"
+          PREV=$(git tag --sort=-creatordate | grep '^v' | grep -v "^${CUR}$" | head -n1 || true)
+
+          if [ -z "${PREV}" ]; then
+            MODULES="${{ steps.order.outputs.order }}"
+          else
+            DIFF=$(git diff -U0 "${PREV}"..."${CUR}" -- pom.xml | grep -E '^[+-]\s*<dbadvisor\..*\.version>' || true)
+
+            CHANGED=""
+            if [ -n "$DIFF" ]; then
+              while IFS= read -r line; do
+                n=$(printf "%s\n" "$line" | sed -E 's/.*<dbadvisor\.([a-z0-9-]+)\.version>.*/dbadvisor-\1/')
+                [ -n "$n" ] && CHANGED="$CHANGED $n"
+              done <<< "$DIFF"
+            fi
+            CHANGED=$(echo "$CHANGED" | xargs -n1 2>/dev/null | sort -u | xargs 2>/dev/null || true)
+          
+            MODULES=""
+            for m in ${{ steps.order.outputs.order }}; do
+              if echo " $CHANGED " | grep -q " $m "; then
+                MODULES="$MODULES $m"
+              fi
+            done
+            MODULES=$(echo "$MODULES" | xargs || true)
+          fi
+
+          echo "modules=$MODULES" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy BOM
         env:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           set -euo pipefail
-          MOD="${{ steps.tag.outputs.module }}"
-          PATH_MOD="${{ steps.map.outputs.path }}"
-          AID="${{ steps.map.outputs.artifactId }}"
+          mvn -B -U -DskipTests \
+            -Dgpg.executable=gpg \
+            -Dgpg.args="--batch --yes --pinentry-mode loopback" \
+            deploy -f dbadvisor-bom/pom.xml
 
-          if [ "$MOD" = "bom" ]; then
-            echo "Deploying BOM: $PATH_MOD"
+      - name: Deploy changed modules in POM order
+        if: ${{ steps.changed.outputs.modules != '' }}
+        env:
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          for m in ${{ steps.changed.outputs.modules }}; do
+            echo "Deploying $m"
             mvn -B -U -DskipTests \
               -Dgpg.executable=gpg \
               -Dgpg.args="--batch --yes --pinentry-mode loopback" \
-              deploy -f "$PATH_MOD/pom.xml"
-          else
-            echo "Deploying module: $AID ($PATH_MOD)"
-            mvn -B -U -DskipTests \
-              -Dgpg.executable=gpg \
-              -Dgpg.args="--batch --yes --pinentry-mode loopback" \
-              -pl ":$AID" -am \
-              deploy
-          fi
+              deploy -f "$m/pom.xml"
+          done
 
-      - name: Prepare release notes
+      - name: Collect module versions and prepare release notes
         id: notes
         shell: bash
         run: |
           set -euo pipefail
           BODY_FILE="RELEASE_BODY.md"
           {
-            echo "# ${{
-              steps.map.outputs.artifactId
-            }} ${{ steps.tag.outputs.version }}"
+            echo "# dbadvisor ${{ steps.versions.outputs.tag_version }}"
             echo
             echo "## Info"
             echo "- Tag: \`${{ github.ref_name }}\`"
             echo "- Commit: \`${{ github.sha }}\`"
-            echo "- Módulo: \`${{ steps.tag.outputs.module }}\`"
+            echo
+            echo "## Deployed Modules"
+            echo "${{ steps.changed.outputs.modules || steps.order.outputs.order }}" | tr ' ' '\n' | sed '/^$/d' | sed 's/^/- /'
           } > "$BODY_FILE"
           echo "body_path=$BODY_FILE" >> "$GITHUB_OUTPUT"
 
@@ -165,7 +187,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: ${{ steps.map.outputs.artifactId }} ${{ steps.tag.outputs.version }}
+          name: dbadvisor ${{ steps.versions.outputs.tag_version }}
           body_path: ${{ steps.notes.outputs.body_path }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
