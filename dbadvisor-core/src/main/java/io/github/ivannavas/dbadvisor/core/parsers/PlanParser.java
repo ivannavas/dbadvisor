@@ -3,7 +3,7 @@ package io.github.ivannavas.dbadvisor.core.parsers;
 import io.github.ivannavas.dbadvisor.core.items.Plan;
 
 public interface PlanParser {
-    Plan parse(String rawPlan);
+    Plan parse(String rawPlan, String query);
 
     String getPlanGeneratorQuery(String query);
 }

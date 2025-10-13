@@ -8,11 +8,17 @@ import io.github.ivannavas.dbadvisor.hibernate.listeners.QueryPlanListener;
 import io.github.ivannavas.dbadvisor.postgresql.parsers.PostgresqlJsonPlanParser;
 import lombok.extern.slf4j.Slf4j;
 import net.ttddyy.dsproxy.support.ProxyDataSourceBuilder;
+import org.hibernate.Session;
+import org.hibernate.SessionFactory;
+import org.hibernate.boot.MetadataSources;
 import org.hibernate.boot.registry.StandardServiceRegistryBuilder;
 import org.hibernate.cfg.AvailableSettings;
 import org.hibernate.service.spi.ServiceContributor;
 
 import javax.sql.DataSource;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -32,7 +38,38 @@ public class AutoInstallContributor implements ServiceContributor {
             return;
         }
 
-        dbadvisor.runInitialAnalysis();
+        try (var registry = serviceRegistry.build();
+             SessionFactory sessionFactory = new MetadataSources(registry).buildMetadata().buildSessionFactory();
+             Session session = sessionFactory.openSession()) {
+            dbadvisor.runInitialAnalysis(query -> {
+                var ps = session.doReturningWork(connection -> connection.prepareStatement(query));
+                ResultSet rs = null;
+                try {
+                    rs = ps.executeQuery();
+                    if (rs.next()) {
+                        return Collections.singletonList(rs.getString(1));
+                    }
+                } catch (Exception e) {
+                    log.error(
+                            "Failed to execute initial advisor query: {}. Error: {}",
+                            query,
+                            e.getMessage()
+                    );
+                } finally {
+                    if (rs != null) {
+                        try {
+                            rs.close();
+                        } catch (SQLException e) {
+                            log.error("Failed to close ResultSet.", e);
+                        }
+                    }
+                }
+                return Collections.emptyList();
+            });
+        } catch (Exception e) {
+            log.error("Failed to open session for dbadvisor initialization.", e);
+            return;
+        }
 
         String dialect = String.valueOf(settings.get(AvailableSettings.DIALECT)).toLowerCase();
         PlanParser planParser =

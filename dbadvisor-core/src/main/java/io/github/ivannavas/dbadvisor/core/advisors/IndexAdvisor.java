@@ -6,10 +6,10 @@ import io.github.ivannavas.dbadvisor.core.items.Plan;
 
 import java.util.List;
 
-public class IndexAdvisor extends QueryAdvisor<IndexAdvise> {
+public class IndexAdvisor implements Advisor<IndexAdvise> {
 
     @Override
-    public List<IndexAdvise> getAdvise(Plan plan) {
+    public List<IndexAdvise> onQuery(Plan plan) {
         return plan.root().children()
                 .stream()
                 .filter(n -> !n.type().equals(Node.NodeType.UNKNOWN))

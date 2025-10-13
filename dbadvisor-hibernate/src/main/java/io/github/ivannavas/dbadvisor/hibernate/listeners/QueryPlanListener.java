@@ -41,7 +41,7 @@ public class QueryPlanListener implements QueryExecutionListener {
                 var rs = ps.executeQuery();
                 if (rs.next()) {
                     String rawPlan = rs.getString(1);
-                    dbadvisor.runQueryAnalysis(rawPlan);
+                    dbadvisor.runQueryAnalysis(rawPlan, query);
                 }
 
                 rs.close();

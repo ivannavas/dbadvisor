@@ -1,4 +1,4 @@
 package io.github.ivannavas.dbadvisor.core.items;
 
-public record Plan(Node root) {
+public record Plan(Node root, String query) {
 }

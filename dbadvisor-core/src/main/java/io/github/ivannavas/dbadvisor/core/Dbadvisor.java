@@ -1,12 +1,13 @@
 package io.github.ivannavas.dbadvisor.core;
 
 import io.github.ivannavas.dbadvisor.core.advisors.Advisor;
-import io.github.ivannavas.dbadvisor.core.advisors.InitialAdvisor;
-import io.github.ivannavas.dbadvisor.core.advisors.QueryAdvisor;
 import io.github.ivannavas.dbadvisor.core.items.Plan;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+
+import java.util.List;
+import java.util.function.Function;
 
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 @Slf4j
@@ -26,37 +27,28 @@ public class Dbadvisor {
         return configurationBuilder.build();
     }
 
-    public void runQueryAnalysis(String rawPlan) {
+    public void runQueryAnalysis(String rawPlan, String query) {
         Configuration configuration = configurationBuilder.build();
-        Plan plan = configuration.getPlanParser().parse(rawPlan);
+        Plan plan = configuration.getPlanParser().parse(rawPlan, query);
 
         for (Advisor<?> advisor : configuration.getAdvisors()) {
-            if (!(advisor instanceof QueryAdvisor<?>)) {
-                continue;
-            }
-
-            processQueryAdvisor((QueryAdvisor<?>) advisor, plan);
+            processQueryAdvisor(advisor, plan);
         }
     }
 
-    public void runInitialAnalysis() {
+    public void runInitialAnalysis(Function<String, List<Object>> queryExecutor) {
         Configuration configuration = configurationBuilder.build();
-        Plan plan = configuration.getPlanParser().parse("");
 
         for (Advisor<?> advisor : configuration.getAdvisors()) {
-            if (!(advisor instanceof InitialAdvisor<?>)) {
-                continue;
-            }
-
-            processInitialAdvisor((InitialAdvisor<?>) advisor);
+            processInitialAdvisor(advisor, queryExecutor);
         }
     }
 
-    private <A> void processQueryAdvisor(QueryAdvisor<A> advisor, Plan plan) {
-        advisor.getAdvise(plan).forEach(advise -> log.info(advisor.getAdviseMessage(advise)));
+    private <A> void processQueryAdvisor(Advisor<A> advisor, Plan plan) {
+        advisor.onQuery(plan).forEach(advise -> log.warn(advisor.getAdviseMessage(advise)));
     }
 
-    private <A> void processInitialAdvisor(InitialAdvisor<A> advisor) {
-        advisor.getAdvise().forEach(advise -> log.info(advisor.getAdviseMessage(advise)));
+    private <A> void processInitialAdvisor(Advisor<A> advisor, Function<String, List<Object>> queryExecutor) {
+        advisor.onInit(queryExecutor).forEach(advise -> log.warn(advisor.getAdviseMessage(advise)));
     }
 }

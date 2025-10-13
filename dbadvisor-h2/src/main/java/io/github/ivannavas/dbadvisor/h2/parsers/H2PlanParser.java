@@ -21,7 +21,7 @@ public class H2PlanParser implements PlanParser {
     private static final Pattern P_ROWS         = Pattern.compile("(?i)\\brows?\\s*([0-9]+)");
 
     @Override
-    public Plan parse(String rawPlan) {
+    public Plan parse(String rawPlan, String query) {
         if (rawPlan == null || rawPlan.isBlank()) {
             throw new IllegalArgumentException("Empty EXPLAIN plan");
         }
@@ -87,7 +87,7 @@ public class H2PlanParser implements PlanParser {
             root.children.addAll(roots);
         }
 
-        return new Plan(toImmutable(root));
+        return new Plan(toImmutable(root), query);
     }
 
     @Override

@@ -15,10 +15,10 @@ public class PostgresqlJsonPlanParser implements PlanParser {
     private final ObjectMapper om = new ObjectMapper();
 
     @Override
-    public Plan parse(String rawPlan) {
+    public Plan parse(String rawPlan, String query) {
         try {
             JsonNode root = om.readTree(rawPlan).get(0).get("Plan");
-            return toPlan(root);
+            return toPlan(root, query);
         } catch (Exception e) {
             throw new IllegalArgumentException("Invalid EXPLAIN json", e);
         }
@@ -29,13 +29,13 @@ public class PostgresqlJsonPlanParser implements PlanParser {
         return "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) " + query;
     }
 
-    private Plan toPlan(JsonNode explain) {
+    private Plan toPlan(JsonNode explain, String query) {
         JsonNode rootPlan = explain.has("Plan") ? explain.get("Plan") : explain;
         if (rootPlan == null || rootPlan.isMissingNode()) {
             throw new IllegalArgumentException("Invalid EXPLAIN json: no 'Plan' node");
         }
         Node root = toNode(rootPlan);
-        return new Plan(root);
+        return new Plan(root, query);
     }
 
     private Node toNode(JsonNode n) {
